@@ -82,6 +82,15 @@
     });
 }
 
+- (instancetype)initWithData:(NSData *)data bufferAllocator:(id<GLTFBufferAllocator>)bufferAllocator {
+    if ((self = [super init])) {
+        _bufferAllocator = bufferAllocator;
+        NSError *error = nil;
+        [self loadData:data WithError:&error];
+    }
+    return self;
+}
+
 - (instancetype)initWithURL:(NSURL *)url bufferAllocator:(id<GLTFBufferAllocator>)bufferAllocator {
     return [self _initWithURL:url bufferAllocator:bufferAllocator delegate:nil];
 }
@@ -150,6 +159,72 @@
     }
 
     return urlData;
+}
+
+- (BOOL)loadData:(NSData *)data WithError:(NSError **)errorOrNil {
+    NSError *error = nil;
+    NSDictionary *rootObject = nil;
+    
+    NSData *assetData = data;
+    if (assetData == nil) {
+        return NO;
+    }
+    
+    if ([self assetIsGLB:assetData]) {
+        [self readBinaryChunks:assetData];
+        rootObject = [NSJSONSerialization JSONObjectWithData:_chunks.firstObject.data options:0 error:&error];
+    } else {
+        rootObject = [NSJSONSerialization JSONObjectWithData:assetData options:0 error:&error];
+    }
+    
+    if (!rootObject) {
+        if (errorOrNil) { *errorOrNil = error; }
+        return NO;
+    }
+    
+    _extensionsUsed = [rootObject[@"extensionsUsed"] ?: @[] copy];
+    
+    [self toggleExtensionFeatureFlags];
+
+    _defaultSampler =  [GLTFTextureSampler new];
+    
+    _defaultMaterial = [GLTFMaterial new];
+    
+    _lights = [NSMutableArray array];
+    
+    _cameras = [NSMutableArray array];
+    
+    // Since we aren't streaming, we have the properties for all objects in memory
+    // and we can load in the order that makes the least work for us, i.e. by
+    // reducing the number of name resolutions we have to do after we deserialize
+    // everything into glTF objects. The only object subgraph that can't be
+    // resolved by careful ordering of loading is the subgraph of nodes itself,
+    // which is stored unordered and may contain arbitrary node-node relationships.
+    // Therefore, we run a post-load fix-up pass to resolve all node graph edges
+    // into real object references. Refer to `fixNodeRelationships` below.
+    
+    [self loadAssetProperties:rootObject[@"asset"]];
+    [self loadBuffers:rootObject[@"buffers"]];
+    [self loadBufferViews:rootObject[@"bufferViews"]];
+    [self loadAccessors:rootObject[@"accessors"]];
+    [self loadSamplers:rootObject[@"samplers"]];
+    [self loadImages:rootObject[@"images"]];
+    [self loadTextures:rootObject[@"textures"]];
+    [self loadMaterials:rootObject[@"materials"]];
+    if (_usesKHRLights) {
+        NSDictionary *extensionProperties = rootObject[@"extensions"][GLTFExtensionKHRLights];
+        NSArray *lightsProperties = extensionProperties[@"lights"];
+        [self loadLights:lightsProperties];
+    }
+    [self loadCameras:rootObject[@"cameras"]];
+    [self loadSkins:rootObject[@"skins"]];
+    [self loadMeshes:rootObject[@"meshes"]];
+    [self loadNodes:rootObject[@"nodes"]];
+    [self loadAnimations:rootObject[@"animations"]];
+    [self loadScenes:rootObject[@"scenes"]];
+    [self loadDefaultScene:rootObject[@"scene"]];
+
+    return YES;
 }
 
 - (BOOL)loadWithError:(NSError **)errorOrNil {

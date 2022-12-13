@@ -57,6 +57,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// Load a local asset. The provided URL must be a file URL, or else loading will fail.
 - (instancetype)initWithURL:(NSURL *)url bufferAllocator:(id<GLTFBufferAllocator>)bufferAllocator;
 
+- (instancetype)initWithData:(NSData *)data bufferAllocator:(id<GLTFBufferAllocator>)bufferAllocator;
+
 - (void)addLight:(GLTFKHRLight *)light;
 
 - (void)addCamera:(GLTFCamera *)camera;
